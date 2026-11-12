@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3  # no moving major tag is published
       - run: uv sync --locked
       - name: Tests (offline, includes end-to-end dbt pipeline on real sample data)
         run: uv run pytest -m "not network" -v
@@ -28,6 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3  # no moving major tag is published
       - run: uv sync --locked
       - run: uv run pytest -m network -v
