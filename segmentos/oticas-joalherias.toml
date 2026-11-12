@@ -24,7 +24,7 @@ cnaes = ["3250-7/09"]  # Serviço de laboratório óptico
 
 [[segmento]]
 nome = "Fabricação óptica"
-cnaes = ["3250-7/07"]  # Fabricação de artigos ópticos (a confirmar: remova se não interessar)
+cnaes = ["3250-7/07"]  # Fabricação de artigos ópticos (mantido, confirmado em 2026-11-12)
 
 [[segmento]]
 nome = "Joalherias"
