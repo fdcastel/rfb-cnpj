@@ -2,9 +2,10 @@
 SELECT
     *
 FROM
-    read_csv("../data/1-csv_sources/*.PAISCSV",
+    read_csv({{ csv_source('*.PAISCSV') }},
              header = false,
              columns = {'codigo': 'USMALLINT',
                         'descricao': 'VARCHAR'},
-             decimal_separator = ',',
+             quote = '"',
+             escape = '"',
              delim = ';')

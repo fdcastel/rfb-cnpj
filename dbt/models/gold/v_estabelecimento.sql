@@ -16,7 +16,7 @@ SELECT
         WHEN 8 THEN 'Baixada'
     ELSE
         '?'
-    END	AS situacao_cadastral_str,
+    END AS situacao_cadastral_str,
     es.nome_cidade_exterior,
     es.pais,
     es.data_inicio_atividades,
@@ -43,12 +43,9 @@ SELECT
     es.situacao_especial,
     es.data_situacao_especial,
     es.cnpj,
-    (
-        -- Retorna o regime de tributacao do maior ano para cada cnpj.
-        SELECT REPLACE(REPLACE(arg_max(rt.tributacao, rt.ano), 'LUCRO ', ''), ' DO IRPJ', '')
-        FROM {{ ref('regime_tributacao') }} AS rt
-        WHERE rt.cnpj = es.cnpj
-        GROUP BY rt.cnpj
-    ) AS regime_tributacao
+    rt.tributacao AS regime_tributacao,
+    rt.ano AS regime_tributacao_ano
 FROM
     {{ ref('estabelecimento') }} AS es
+    LEFT JOIN {{ ref('regime_tributacao_atual') }} AS rt
+            ON rt.cnpj = es.cnpj

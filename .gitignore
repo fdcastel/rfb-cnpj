@@ -11,3 +11,8 @@ wheels/
 
 # Project data
 data/
+# Temporary files
+tmp/
+
+# Extract outputs
+output/

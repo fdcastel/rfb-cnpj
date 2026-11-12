@@ -6,10 +6,11 @@ SELECT
     em.qualificacao_responsavel,
     em.capital_social,
     em.porte_empresa,
+    -- Layout: https://www.gov.br/receitafederal/dados/cnpj-metadados.pdf
     CASE em.porte_empresa
-        WHEN 1 THEN 'Não informado'
-        WHEN 2 THEN 'Micro empresa'
-        WHEN 4 THEN 'Empresa de pequeno porte'
+        WHEN 0 THEN 'Não informado'
+        WHEN 1 THEN 'Micro empresa'
+        WHEN 3 THEN 'Empresa de pequeno porte'
         WHEN 5 THEN 'Demais'
     ELSE
         '?'

@@ -1,0 +1,2 @@
+# Fixtures are real RFB files: keep them byte-for-byte (latin-1, LF, embedded newlines).
+tests/fixtures/** -text

@@ -3,12 +3,10 @@ rfb_cnpj:
   outputs:
     prod:
       type: duckdb
-      extensions:
-        - parquet
       threads: 6
 
-      path: ../data/rfb-cnpj.duckdb
+      path: "{{ env_var('RFB_CNPJ_DATA_DIR', '../data') }}/rfb-cnpj.duckdb"
 
       # Default location for materialized='external' files
       #   https://github.com/duckdb/dbt-duckdb#reading-and-writing-external-files
-      external_root: ../data/2-parquet_sources 
+      external_root: "{{ env_var('RFB_CNPJ_DATA_DIR', '../data') }}/2-parquet_sources"

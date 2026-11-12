@@ -1,4 +1,4 @@
 SELECT
     *
 FROM
-    {{ ref('csv_cnae') }}
+    {{ ref('csv_motivo') }}

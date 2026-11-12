@@ -2,9 +2,10 @@
 SELECT
     *
 FROM
-    read_csv("../data/1-csv_sources/*.MUNICCSV",
+    read_csv({{ csv_source('*.MUNICCSV') }},
              header = false,
              columns = {'codigo': 'USMALLINT',
                         'descricao': 'VARCHAR'},
-             decimal_separator = ',',
+             quote = '"',
+             escape = '"',
              delim = ';')
