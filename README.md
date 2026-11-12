@@ -69,6 +69,18 @@ Opções: `--todas-situacoes` (inclui baixadas, inaptas, etc.), `--somente-princ
 
 O CSV usa `;` como separador e UTF-8 com BOM (abre diretamente no Excel em português).
 
+### Segmentos
+
+Para agrupar CNAEs em segmentos e definir os critérios em um arquivo editável, use `--segmentos`:
+
+```bash
+uv run extract-cnae --segmentos segmentos/oticas-joalherias.toml --output ./output/oticas-joalherias
+```
+
+O arquivo [`segmentos/oticas-joalherias.toml`](./segmentos/oticas-joalherias.toml) gera uma aba por segmento (lojas óticas, laboratórios óticos, fabricação óptica, joalherias e relojoarias), considerando somente o CNAE **principal** e separando os MEIs em abas próprias. A coluna `cnaes_alvo` indica, por exemplo, as joalherias que também vendem artigos de ótica.
+
+Opção de linha de comando equivalente: `--separar-mei`.
+
 
 
 # Visão geral

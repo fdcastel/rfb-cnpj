@@ -8,11 +8,16 @@ and run them through the same extraction as `build`. They are chosen to exercise
 - a CNAE with a leading zero (0111301);
 - CSV quirks: embedded newlines and escaped quotes ("");
 - an alphanumeric CNPJ (issued since 2026-07);
+- jewelers / watch stores as primary activity (with and without an optical secondary
+  CNAE) and a clothing store with optical as secondary (segments file);
+- MEIs (sole proprietorships), for the MEI sheets;
 - dates in months other than January (catches the '%M' bug of v1);
 - companies with tax-regime and Simples rows.
 
 Privacy (the repository is public): e-mails and phone numbers are replaced by
-deterministic fakes (enforced by tests/test_pipeline.py::test_fixture_contacts_are_masked).
+deterministic fakes, and so are the names and street numbers of sole proprietorships
+(natureza juridica 2135, which includes MEIs). Enforced by
+tests/test_pipeline.py::test_fixture_personal_data_is_masked.
 
 Usage: uv run python scripts/make_fixtures.py [--data-dir ./data]
 """
@@ -26,6 +31,8 @@ import duckdb
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "csv"
 TARGETS = ["3250709", "3250707", "4774100"]
+JOALHERIA, RELOJOARIA, VESTUARIO = "4783101", "4783102", "4781400"
+EMPRESARIO_INDIVIDUAL = "2135"
 LEADING_ZERO_CNAE = "0111301"
 PER_CASE = 2
 
@@ -101,6 +108,28 @@ def main() -> None:
     cases.append("""(SELECT * FROM est WHERE c4 LIKE '%' || chr(10) || '%' ORDER BY hash(c0 || c1) LIMIT 1)""")
     cases.append("""(SELECT * FROM est WHERE c0 IN (SELECT c0 FROM emp WHERE c1 LIKE '%"%' AND c2 <> '2135')
         ORDER BY hash(c0 || c1) LIMIT 1)""")
+    # Segments: jewelers / watch stores (primary), clothing with optical as secondary.
+    targets = "[" + ", ".join(f"'{t}'" for t in TARGETS) + "]"
+    cases.append(f"""(SELECT * FROM est WHERE c5 = '02' AND c11 = '{JOALHERIA}'
+        AND list_has_any(sec, {targets}) ORDER BY hash(c0 || c1) LIMIT 1)""")
+    cases.append(f"""(SELECT * FROM est WHERE c5 = '02' AND c11 = '{JOALHERIA}'
+        AND NOT list_has_any(sec, {targets}) ORDER BY hash(c0 || c1) LIMIT 1)""")
+    cases.append(f"""(SELECT * FROM est WHERE c5 = '02' AND c11 = '{RELOJOARIA}' ORDER BY hash(c0 || c1) LIMIT 1)""")
+    cases.append(f"""(SELECT * FROM est WHERE c5 = '02' AND c11 = '{VESTUARIO}'
+        AND list_contains(sec, '4774100') ORDER BY hash(c0 || c1) LIMIT 1)""")
+
+    # MEIs: active optical stores and jewelers (sole proprietorships; masked below).
+    con.execute(f"""
+        CREATE TABLE est_mei AS
+        SELECT e.* EXCLUDE filename, string_split(e.c12, ',') AS sec
+        FROM {read(src / '*.ESTABELE', EST_COLS)} AS e
+        JOIN emp ON emp.c0 = e.c0
+        WHERE emp.c2 = '{EMPRESARIO_INDIVIDUAL}' AND e.c5 = '02' AND e.c11 IN ('4774100', '{JOALHERIA}')
+          AND e.c0 IN (SELECT c0 FROM {read(src / '*.SIMPLES.CSV.*', SIM_COLS)} WHERE c4 = 'S')
+    """)
+    cases.append("(SELECT * FROM est_mei WHERE c11 = '4774100' ORDER BY hash(c0 || c1) LIMIT 2)")
+    cases.append(f"(SELECT * FROM est_mei WHERE c11 = '{JOALHERIA}' ORDER BY hash(c0 || c1) LIMIT 1)")
+
     # Alphanumeric CNPJ (issued since 2026-07).
     cases.append("""(SELECT * FROM est WHERE regexp_matches(c0 || c1, '[A-Z]') ORDER BY hash(c0 || c1) LIMIT 1)""")
     con.execute("CREATE TABLE sample AS " + " UNION ".join(cases))
@@ -118,11 +147,27 @@ def main() -> None:
         UPDATE sample SET c27 = 'CONTATO' || CAST(hash(c0 || c1) % 100000 AS VARCHAR) || '@EXEMPLO.COM.BR'
         WHERE c27 <> ''
     """)
+    # Sole proprietorships: the company name is the person's name; the address may be a home.
+    con.execute(f"""
+        CREATE TABLE emp_sample AS
+        SELECT c0,
+               CASE WHEN c2 = '{EMPRESARIO_INDIVIDUAL}'
+                    THEN 'EMPRESARIO INDIVIDUAL ' || CAST(hash(c0) % 100000 AS VARCHAR) ELSE c1 END AS c1,
+               c2, c3, c4, c5, c6
+        FROM emp WHERE c0 IN (SELECT c0 FROM sample)
+    """)
+    con.execute(f"""
+        UPDATE sample SET
+            c4 = CASE WHEN c4 <> '' THEN 'LOJA ' || CAST(hash(c0 || c1) % 1000 AS VARCHAR) ELSE '' END,
+            c15 = '100',
+            c16 = ''
+        WHERE c0 IN (SELECT c0 FROM emp_sample WHERE c2 = '{EMPRESARIO_INDIVIDUAL}')
+    """)
 
     est_cols = ", ".join(f"c{i}" for i in range(EST_COLS))
     n = write_latin1(con, f"SELECT {est_cols} FROM sample ORDER BY c0, c1", OUT / "K3241.K03200Y0.D61010.ESTABELE")
     print(f"ESTABELE: {n}")
-    n = write_latin1(con, "SELECT * FROM emp WHERE c0 IN (SELECT c0 FROM sample) ORDER BY c0",
+    n = write_latin1(con, "SELECT * FROM emp_sample ORDER BY c0",
                      OUT / "K3241.K03200Y0.D61010.EMPRECSV")
     print(f"EMPRECSV: {n}")
     n = write_latin1(con, f"""SELECT * EXCLUDE filename FROM {read(src / '*.SIMPLES.CSV.*', SIM_COLS)}

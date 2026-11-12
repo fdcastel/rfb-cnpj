@@ -46,6 +46,14 @@ ESTAB = raw_rows("*.ESTABELE")
 EMPRESAS = {r[0]: r for r in raw_rows("*.EMPRECSV")}
 SIMPLES = raw_rows("*.SIMPLES.CSV.*")
 REGIME = raw_rows("Imunes*.csv", ",", "utf-8", True) + raw_rows("Lucro*.csv", ",", "utf-8", True)
+MEI_BASES = {r[0] for r in SIMPLES if r[4] == "S"}
+
+JOALHERIA, RELOJOARIA, VESTUARIO = "4783101", "4783102", "4781400"
+SEGMENTOS_FILE = Path(__file__).parents[1] / "segmentos" / "oticas-joalherias.toml"
+
+
+def is_mei(base: str) -> bool:
+    return base in MEI_BASES
 
 
 @pytest.fixture(scope="module")
@@ -85,14 +93,26 @@ def test_fixture_covers_the_cases():
     assert any(r[10][4:6] != "01" for r in ESTAB)
     assert any(int(r[5]) != 2 for r in ESTAB)
     assert any(r[11] not in TARGETS and set(TARGETS) & set(r[12].split(",")) for r in ESTAB)
+    # segments file cases
+    assert any(r[11] == JOALHERIA and set(TARGETS) & set(r[12].split(",")) for r in ESTAB)
+    assert any(r[11] == JOALHERIA and not set(TARGETS) & set(r[12].split(",")) for r in ESTAB)
+    assert any(r[11] == RELOJOARIA for r in ESTAB)
+    assert any(r[11] == VESTUARIO and "4774100" in r[12].split(",") for r in ESTAB)
+    assert {r[11] for r in ESTAB if is_mei(r[0])} >= {"4774100", JOALHERIA}
 
 
-def test_fixture_contacts_are_masked():
-    """The repository is public: fixture e-mails/phones must be fakes (see scripts/make_fixtures.py)."""
+def test_fixture_personal_data_is_masked():
+    """The repository is public: contacts and sole proprietors' data are fakes (scripts/make_fixtures.py)."""
     for r in ESTAB:
         assert r[27] == "" or re.fullmatch(r"CONTATO\d+@EXEMPLO\.COM\.BR", r[27]), r[27]
         for phone in (r[22], r[24], r[26]):
             assert phone == "" or phone.startswith("3"), phone
+        if EMPRESAS[r[0]][2] == "2135":
+            assert r[15] == "100" and r[16] == ""
+            assert r[4] == "" or r[4].startswith("LOJA ")
+    for r in EMPRESAS.values():
+        if r[2] == "2135":
+            assert r[1].startswith("EMPRESARIO INDIVIDUAL "), r[1]
 
 
 def test_all_rows_loaded(con):
@@ -272,3 +292,92 @@ def test_format_cnae():
 def test_normalize_cnae_rejects_invalid():
     with pytest.raises(ValueError):
         extract.normalize_cnae("4774-1")
+
+
+#
+# Segments file (segmentos/oticas-joalherias.toml)
+#
+
+
+def test_segmentos_file_matches_the_business_decision():
+    """Decided 2026-11-11: optical stores, optical labs, jewelers (+ watch stores); primary CNAE only; MEIs apart."""
+    segmentos, options = extract.load_segmentos(SEGMENTOS_FILE)
+    assert {s.nome: set(s.cnaes) for s in segmentos} == {
+        "Lojas óticas": {"4774100"},
+        "Laboratórios óticos": {"3250709"},
+        "Fabricação óptica": {"3250707"},
+        "Joalherias": {JOALHERIA},
+        "Relojoarias": {RELOJOARIA},
+    }
+    assert options == {"somente_principal": True, "separar_mei": True}
+
+
+def test_extract_segmentos_cli(data_dir, tmp_path):
+    output = tmp_path / "oticas"
+    extract.main(["--segmentos", str(SEGMENTOS_FILE), "--output", str(output), "--data-dir", str(data_dir)])
+    segmentos, _ = extract.load_segmentos(SEGMENTOS_FILE)
+    all_codes = {c for s in segmentos for c in s.cnaes}
+
+    def expected(codes: set[str], mei: bool | None = None) -> set[str]:
+        return {
+            fmt_cnpj(r[0], r[1], r[2])
+            for r in ESTAB
+            if int(r[5]) == 2 and r[11] in codes and (mei is None or is_mei(r[0]) == mei)
+        }
+
+    # CSV: one row per establishment, with its segment.
+    rows = read_csv_output(output.with_suffix(".csv"))
+    assert {r["cnpj"] for r in rows} == expected(all_codes)
+    assert not any(r["cnae_principal"] == VESTUARIO for r in rows)  # clothing only as secondary: out
+    by_code = {c: s.nome for s in segmentos for c in s.cnaes}
+    for r in rows:
+        assert r["segmento"] == by_code[r["cnae_principal"]]
+        raw = next(x for x in ESTAB if fmt_cnpj(x[0], x[1], x[2]) == r["cnpj"])
+        matched = [c for c in by_code if c == raw[11] or c in raw[12].split(",")]
+        assert sorted(r["cnaes_alvo"].split(", ")) == sorted(extract.format_cnae(c) for c in matched)
+
+    # A jeweler that also sells optics shows it in cnaes_alvo.
+    assert any(r["cnae_principal"] == JOALHERIA and "4774-1/00" in r["cnaes_alvo"] for r in rows) or not any(
+        x[11] == JOALHERIA and "4774100" in x[12].split(",") and int(x[5]) == 2 for x in ESTAB
+    )
+
+    # Workbook: Resumo + (segment, segment (MEI)) for each segment.
+    wb = openpyxl.load_workbook(output.with_suffix(".xlsx"), read_only=True)
+    expected_sheets = ["Resumo"] + [n for s in segmentos for n in (s.nome, f"{s.nome} (MEI)")]
+    assert wb.sheetnames == expected_sheets
+    for seg in segmentos:
+        for name, mei in ((seg.nome, False), (f"{seg.nome} (MEI)", True)):
+            values = list(wb[name].values)
+            header, data = values[0], values[1:]
+            i_cnpj, i_tipo, i_mei = header.index("cnpj"), header.index("tipo_cnae"), header.index("opcao_mei")
+            assert {row[i_cnpj] for row in data} == expected(set(seg.cnaes), mei), name
+            assert all(row[i_tipo] == "Principal" for row in data)
+            assert all(row[i_mei] == ("Sim" if mei else "Não") for row in data)
+    assert any(list(wb[f"{s.nome} (MEI)"].values)[1:] for s in segmentos)  # MEI sheets are exercised
+
+    summary = list(wb["Resumo"].values)
+    distinct = next(r for r in summary if r and r[0] == "Estabelecimentos distintos")
+    assert distinct[4:7] == (
+        len(expected(all_codes)),
+        len(expected(all_codes, mei=False)),
+        len(expected(all_codes, mei=True)),
+    )
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("Lojas óticas (MEI)", "Lojas óticas (MEI)"),
+        ("3250-7/09", "3250-7-09"),
+        (r"a[b]:c*d?e\f", "a-b--c-d-e-f"),
+        ("x" * 40, "x" * 31),
+    ],
+)
+def test_sheet_name(name, expected):
+    assert extract.sheet_name(name, set()) == expected
+
+
+def test_sheet_name_unique():
+    used: set[str] = set()
+    names = [extract.sheet_name("y" * 40, used) for _ in range(3)]
+    assert names == ["y" * 31, "y" * 29 + " 2", "y" * 29 + " 3"]

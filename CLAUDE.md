@@ -13,4 +13,7 @@ Pipeline: `src/rfb_cnpj/build.py` (download + extract + dbt) → `dbt/` (DuckDB,
 - 2026-11-11 — v2.0 upgrade: tax-regime files moved to `Dados/Obrigacoes_Acessorias/ECF/entidades-*.zip` and now share one layout (header, `,`, formatted CNPJ).
 - 2026-11-11 — v2.0 upgrade: DuckDB `%M` is *minutes*; RFB dates are `%Y%m%d`. v1 loaded every date in January. Dates are parsed with `TRY_STRPTIME` (macro `rfb_date`). Covered by `tests/test_pipeline.py`.
 - 2026-11-11 — v2.0 upgrade: `porte_empresa` codes are 00/01/03/05 (see https://www.gov.br/receitafederal/dados/cnpj-metadados.pdf), not 1/2/4/5.
+- 2026-11-11 — v2.0 upgrade: CNPJ base/ordem can be alphanumeric (since 2026-07); keep CNPJ parts as strings.
+- 2026-11-11 — commit "CI: pin setup-uv": `astral-sh/setup-uv` publishes no moving major tag (`@v10` fails); pin the full version.
+- 2026-11-11 — v2.0: the repository is public; fixture contacts and sole proprietors' data are masked (`test_fixture_personal_data_is_masked`).
 - 2026-11-11 — v2.0 upgrade: DuckDB 2.0 removed `DuckDBPyRelation.fetchone()`; use `fetchall()` or the connection cursor API.

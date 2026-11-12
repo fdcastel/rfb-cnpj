@@ -1,0 +1,35 @@
+# Óticas, laboratórios óticos e joalherias.
+#
+#   uv run extract-cnae --segmentos segmentos/oticas-joalherias.toml --output ./output/oticas-joalherias
+#
+# Critérios (definidos em 2026-11-11):
+# - somente estabelecimentos ativos;
+# - CNAE *principal* do segmento (lojas que só citam ótica como atividade secundária,
+#   como lojas de roupas, farmácias e variedades, ficam de fora);
+# - MEIs em abas separadas.
+#
+# A coluna `cnaes_alvo` mostra todos os CNAEs deste arquivo presentes no estabelecimento
+# (ex.: uma joalheria com "4783-1/01, 4774-1/00" também vende artigos de ótica).
+
+somente_principal = true
+separar_mei = true
+
+[[segmento]]
+nome = "Lojas óticas"
+cnaes = ["4774-1/00"]  # Comércio varejista de artigos de óptica
+
+[[segmento]]
+nome = "Laboratórios óticos"
+cnaes = ["3250-7/09"]  # Serviço de laboratório óptico
+
+[[segmento]]
+nome = "Fabricação óptica"
+cnaes = ["3250-7/07"]  # Fabricação de artigos ópticos (a confirmar: remova se não interessar)
+
+[[segmento]]
+nome = "Joalherias"
+cnaes = ["4783-1/01"]  # Comércio varejista de artigos de joalheria
+
+[[segmento]]
+nome = "Relojoarias"
+cnaes = ["4783-1/02"]  # Comércio varejista de artigos de relojoaria
