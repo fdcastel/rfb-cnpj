@@ -5,6 +5,7 @@ Requires the database built by `uv run build`.
 Examples:
     uv run extract-cnae 3250-7/09 3250-7/07 4774-1/00 --output ./output/opticas
     uv run extract-cnae --segmentos segmentos/oticas-joalherias.toml --output ./output/oticas
+    uv run extract-cnae 9602-5/01 --filtro-nome "\bBARBEARIA\b" --output ./output/barbearias
 """
 
 import argparse
@@ -25,6 +26,7 @@ DATABASE_FILE = "rfb-cnpj.duckdb"
 DBT_DIR = Path(__file__).resolve().parents[2] / "dbt"
 
 SITUACAO_ATIVA = 2
+EXCEL_MAX_ROWS = 1_048_576
 
 UFS = [
     "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
@@ -100,6 +102,15 @@ class Segmento:
 
     nome: str
     cnaes: tuple[str, ...]
+    # Optional regular expression (case-insensitive) that the trade name or the company
+    # name must match, for activities without a CNAE of their own (e.g. barbershops).
+    filtro_nome: str | None = None
+
+    def nome_confere(self, razao_social: str | None, nome_fantasia: str | None) -> bool:
+        if self.filtro_nome is None:
+            return True
+        pattern = re.compile(self.filtro_nome, re.IGNORECASE)
+        return any(pattern.search(n) for n in (razao_social, nome_fantasia) if n)
 
 
 def normalize_cnae(value: str) -> str:
@@ -119,8 +130,12 @@ def load_segmentos(path: Path) -> tuple[list[Segmento], dict[str, bool]]:
     """Read a segments file (TOML), e.g. segmentos/oticas-joalherias.toml."""
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     segmentos = [
-        Segmento(s["nome"], tuple(normalize_cnae(c) for c in s["cnaes"])) for s in data.get("segmento", [])
+        Segmento(s["nome"], tuple(normalize_cnae(c) for c in s["cnaes"]), s.get("filtro_nome"))
+        for s in data.get("segmento", [])
     ]
+    for seg in segmentos:
+        if seg.filtro_nome is not None:
+            re.compile(seg.filtro_nome)  # fail early on an invalid expression
     if not segmentos:
         raise SystemExit(f"{path}: no [[segmento]] defined.")
     options = {k: bool(data[k]) for k in ("todas_situacoes", "somente_principal", "separar_mei") if k in data}
@@ -139,11 +154,18 @@ def sheet_name(name: str, used: set[str]) -> str:
 
 
 def classify(
-    row: tuple, segmentos: list[Segmento], i_principal: int, i_alvo: int, somente_principal: bool
+    row: tuple,
+    segmentos: list[Segmento],
+    i_principal: int,
+    i_alvo: int,
+    somente_principal: bool,
+    i_nomes: tuple[int, int] | None = None,
 ) -> list[tuple[Segmento, str]]:
     """Segments a row belongs to, with the match type ('Principal' or 'Secundário')."""
     out = []
     for seg in segmentos:
+        if i_nomes is not None and not seg.nome_confere(row[i_nomes[0]], row[i_nomes[1]]):
+            continue
         if row[i_principal] in seg.cnaes:
             out.append((seg, "Principal"))
         elif not somente_principal and set(row[i_alvo]) & set(seg.cnaes):
@@ -224,7 +246,8 @@ def write_xlsx(
     i_mei = columns.index("opcao_mei")
     sheet_columns = columns[:i_alvo] + ["tipo_cnae"] + columns[i_alvo:]
 
-    wb = xlsxwriter.Workbook(path, {"remove_timezone": True})
+    # constant_memory: rows are flushed as written (every sheet is written top to bottom).
+    wb = xlsxwriter.Workbook(path, {"remove_timezone": True, "constant_memory": True})
     bold = wb.add_format({"bold": True})
     title = wb.add_format({"bold": True, "font_size": 14})
     header = wb.add_format({"bold": True, "bg_color": "#DDEBF7", "border": 1})
@@ -235,6 +258,11 @@ def write_xlsx(
     summary_ws = wb.add_worksheet(sheet_name("Resumo", used))
 
     def write_sheet(name: str, selected: list[tuple[tuple, str]]) -> None:
+        if len(selected) >= EXCEL_MAX_ROWS:
+            raise SystemExit(
+                f"Sheet {name!r}: {len(selected):,} rows exceed the Excel limit ({EXCEL_MAX_ROWS - 1:,}). "
+                "Split the segment (e.g. --separar-mei) or use the CSV."
+            )
         ws = wb.add_worksheet(sheet_name(name, used))
         ws.write_row(0, 0, sheet_columns, header)
         for r, (row, tipo) in enumerate(selected, start=1):
@@ -326,10 +354,15 @@ def extract(
     somente_principal: bool = False,
     segmentos: list[Segmento] | None = None,
     separar_mei: bool = False,
+    filtro_nome: str | None = None,
 ) -> tuple[Path, Path, int]:
     """Extract establishments. Either `cnaes` (one segment per CNAE) or `segmentos`."""
     if segmentos is None:
-        segmentos = [Segmento(format_cnae(c), (c,)) for c in (normalize_cnae(x) for x in cnaes or [])]
+        if filtro_nome is not None:
+            re.compile(filtro_nome)
+        segmentos = [
+            Segmento(format_cnae(c), (c,), filtro_nome) for c in (normalize_cnae(x) for x in cnaes or [])
+        ]
     if not segmentos:
         raise SystemExit("No CNAE given.")
     all_cnaes = list(dict.fromkeys(c for s in segmentos for c in s.cnaes))
@@ -343,7 +376,11 @@ def extract(
         columns, rows = query(con, all_cnaes, todas_situacoes, somente_principal)
 
     i_principal, i_alvo = columns.index("cnae_principal"), columns.index("cnaes_alvo")
-    matches = [classify(r, segmentos, i_principal, i_alvo, somente_principal) for r in rows]
+    i_nomes = (columns.index("razao_social"), columns.index("nome_fantasia"))
+    matches = [classify(r, segmentos, i_principal, i_alvo, somente_principal, i_nomes) for r in rows]
+    # A name filter drops rows that match the CNAEs but no segment.
+    kept = [(r, m) for r, m in zip(rows, matches) if m]
+    rows, matches = [r for r, _ in kept], [m for _, m in kept]
 
     snapshot = snapshot_month(data_dir / CSV_SOURCES) or "?"
     subtitle = (
@@ -351,6 +388,9 @@ def extract(
         f"{'todas as situações' if todas_situacoes else 'somente ativas'}, "
         f"{'somente CNAE principal' if somente_principal else 'CNAE principal ou secundário'}"
     )
+    filtros = [f"{s.nome}: nome contém /{s.filtro_nome}/" for s in segmentos if s.filtro_nome]
+    if filtros:
+        subtitle += "; " + "; ".join(filtros)
 
     csv_path = output.with_suffix(".csv")
     xlsx_path = output.with_suffix(".xlsx")
@@ -372,12 +412,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--todas-situacoes", action="store_true", help="Include non-active establishments.")
     parser.add_argument("--somente-principal", action="store_true", help="Match the primary CNAE only.")
     parser.add_argument("--separar-mei", action="store_true", help="Separate sheets for MEI establishments.")
+    parser.add_argument(
+        "--filtro-nome",
+        metavar="REGEX",
+        help="Keep only establishments whose trade or company name matches (case-insensitive). "
+        "With --segmentos, use `filtro_nome` in each [[segmento]].",
+    )
     args = parser.parse_args(argv)
 
     segmentos, options = None, {}
     if args.segmentos:
-        if args.cnaes:
-            parser.error("give either CNAE codes or --segmentos, not both")
+        if args.cnaes or args.filtro_nome:
+            parser.error("give either CNAE codes (and --filtro-nome) or --segmentos, not both")
         segmentos, options = load_segmentos(args.segmentos)
     elif not args.cnaes:
         parser.error("give CNAE codes or --segmentos")
@@ -390,6 +436,7 @@ def main(argv: list[str] | None = None) -> None:
         somente_principal=args.somente_principal or options.get("somente_principal", False),
         segmentos=segmentos,
         separar_mei=args.separar_mei or options.get("separar_mei", False),
+        filtro_nome=args.filtro_nome,
     )
     print(f"{count} establishments.\n  {xlsx_path}\n  {csv_path}")
 

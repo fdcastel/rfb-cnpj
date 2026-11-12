@@ -81,6 +81,15 @@ O arquivo [`segmentos/oticas-joalherias.toml`](./segmentos/oticas-joalherias.tom
 
 Opção de linha de comando equivalente: `--separar-mei`.
 
+Atividades sem CNAE próprio podem ser filtradas pelo nome (expressão regular aplicada ao nome fantasia e à razão social), com `filtro_nome` no segmento ou `--filtro-nome` na linha de comando. Exemplo: barbearias, que ficam no CNAE 9602-5/01 junto com salões de cabeleireiro e manicures:
+
+```bash
+uv run extract-cnae --segmentos segmentos/barbearias-cnae.toml --output ./output/barbearias-cnae   # CNAE inteiro
+uv run extract-cnae --segmentos segmentos/barbearias-nome.toml --output ./output/barbearias-nome   # CNAE + nome
+```
+
+Atenção: nos dados abertos da RFB os MEIs não têm nome fantasia e a razão social é o nome do titular + CPF, portanto o filtro por nome praticamente não encontra MEIs.
+
 
 
 # Visão geral

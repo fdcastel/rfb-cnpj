@@ -381,3 +381,72 @@ def test_sheet_name_unique():
     used: set[str] = set()
     names = [extract.sheet_name("y" * 40, used) for _ in range(3)]
     assert names == ["y" * 31, "y" * 29 + " 2", "y" * 29 + " 3"]
+
+
+#
+# Name filter (segmentos/barbearias-*.toml): activities without a CNAE of their own.
+#
+
+BARBEARIAS_CNAE_FILE = Path(__file__).parents[1] / "segmentos" / "barbearias-cnae.toml"
+BARBEARIAS_NOME_FILE = Path(__file__).parents[1] / "segmentos" / "barbearias-nome.toml"
+
+
+def test_extract_filtro_nome_cli(data_dir, tmp_path):
+    """Only rows whose trade name or company name matches; the CNAE rule still applies."""
+    output = tmp_path / "oticas-nome"
+    pattern = r"\bOTICAS?\b"
+    extract.main(["4774-1/00", "--filtro-nome", pattern, "--somente-principal", "--output", str(output),
+                  "--data-dir", str(data_dir)])
+
+    def name_matches(r):
+        return any(re.search(pattern, n, re.IGNORECASE) for n in (r[4], EMPRESAS[r[0]][1]) if n)
+
+    candidates = [r for r in ESTAB if int(r[5]) == 2 and r[11] == "4774100"]
+    expected = {fmt_cnpj(r[0], r[1], r[2]) for r in candidates if name_matches(r)}
+    assert expected and len(expected) < len(candidates)  # the filter really drops rows in the fixture
+
+    rows = read_csv_output(output.with_suffix(".csv"))
+    assert {r["cnpj"] for r in rows} == expected
+    wb = openpyxl.load_workbook(output.with_suffix(".xlsx"), read_only=True)
+    data = list(wb["4774-1-00"].values)[1:]
+    assert len(data) == len(expected)
+    assert "nome contém" in list(wb["Resumo"].values)[1][0]
+
+
+def test_filtro_nome_with_segmentos_is_rejected(data_dir, tmp_path):
+    with pytest.raises(SystemExit):
+        extract.main(["--segmentos", str(BARBEARIAS_NOME_FILE), "--filtro-nome", "X", "--data-dir", str(data_dir)])
+
+
+def test_barbearias_files_match_the_business_decision():
+    """Decided 2026-11-12: barbershops = CNAE 9602-5/01 (primary), with and without the name filter."""
+    for path, filtro in ((BARBEARIAS_CNAE_FILE, False), (BARBEARIAS_NOME_FILE, True)):
+        segmentos, options = extract.load_segmentos(path)
+        assert [s.cnaes for s in segmentos] == [("9602501",)]
+        assert options == {"somente_principal": True, "separar_mei": True}
+        assert (segmentos[0].filtro_nome is not None) == filtro
+
+
+@pytest.mark.parametrize(
+    "fantasia, razao, expected",
+    [
+        ("BARBEARIA DO ZE", "JOSE DA SILVA LTDA", True),
+        ("", "DUNAS BARBEARIA LTDA", True),
+        ("MISTER JOHN BARBER SHOP", "MARCUS LACERDA LTDA", True),
+        ("COUSENS BARBERSHOP", "COUSEN S LTDA", True),
+        ("LUIS PAULO CABELO & BARBA", "LUIS PAULO DA COSTA", True),
+        ("STUDIO BARBERS HAIR", "EDSON LEITE", True),
+        ("", "JOAO BARBOSA 12345678900", False),  # surname, not a barbershop
+        ("SALAO DA BARBARA", "BARBARA SOUZA", False),
+        ("STUDIO HAIR", "MARIA CABELEIREIRA LTDA", False),
+    ],
+)
+def test_barbearias_name_filter(fantasia, razao, expected):
+    (seg,), _ = extract.load_segmentos(BARBEARIAS_NOME_FILE)
+    assert seg.nome_confere(razao, fantasia) is expected
+
+
+def test_sheet_over_excel_limit_fails_clearly(data_dir, tmp_path, monkeypatch):
+    monkeypatch.setattr(extract, "EXCEL_MAX_ROWS", 2)
+    with pytest.raises(SystemExit, match="Excel limit"):
+        extract.extract(data_dir, ["4774-1/00"], tmp_path / "big", somente_principal=True)

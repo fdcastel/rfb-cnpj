@@ -1,0 +1,17 @@
+# Barbearias, pelo CNAE (sem filtro de nome).
+#
+#   uv run extract-cnae --segmentos segmentos/barbearias-cnae.toml --output ./output/barbearias-cnae
+#
+# Barbearias não têm CNAE próprio: segundo as notas do IBGE/CONCLA, ficam em
+# 9602-5/01, junto com salões de cabeleireiro, manicure e pedicure. Este arquivo
+# traz todos eles (~940 mil ativos em 2026-10). Para isolar as barbearias pelo nome,
+# veja segmentos/barbearias-nome.toml.
+#
+# Critérios (definidos em 2026-11-12): somente ativos, somente CNAE principal, MEIs em abas separadas.
+
+somente_principal = true
+separar_mei = true
+
+[[segmento]]
+nome = "Barbearias e salões"
+cnaes = ["9602-5/01"]  # Cabeleireiros, manicure e pedicure

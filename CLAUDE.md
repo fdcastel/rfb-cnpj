@@ -17,3 +17,4 @@ Pipeline: `src/rfb_cnpj/build.py` (download + extract + dbt) → `dbt/` (DuckDB,
 - 2026-11-11 — commit "CI: pin setup-uv": `astral-sh/setup-uv` publishes no moving major tag (`@v10` fails); pin the full version.
 - 2026-11-11 — v2.0: the repository is public; fixture contacts and sole proprietors' data are masked (`test_fixture_personal_data_is_masked`).
 - 2026-11-11 — v2.0 upgrade: DuckDB 2.0 removed `DuckDBPyRelation.fetchone()`; use `fetchall()` or the connection cursor API.
+- 2026-11-12 — barbershop extract: RFB open data has no `nome_fantasia` for MEIs (228 of 13.8 M active MEIs) and their `razao_social` is owner name + CPF, so name filters (`filtro_nome`) cannot find MEIs. Barbershops share CNAE 9602-5/01 with hair/nail salons.

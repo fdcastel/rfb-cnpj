@@ -1,0 +1,22 @@
+# Barbearias, pelo CNAE + nome.
+#
+#   uv run extract-cnae --segmentos segmentos/barbearias-nome.toml --output ./output/barbearias-nome
+#
+# Mesmo CNAE de segmentos/barbearias-cnae.toml (9602-5/01, que inclui salões de cabeleireiro
+# e manicures), mas somente os estabelecimentos cujo nome fantasia ou razão social contém
+# uma palavra de barbearia.
+#
+# Fica de fora quem não tem a palavra no nome. Isso exclui quase todos os MEIs: nos dados
+# abertos da RFB o MEI não tem nome fantasia (15 de 818.722 MEIs ativos neste CNAE em 2026-10)
+# e a razão social é o nome do dono + CPF. "BARBA" entra porque, neste CNAE, quase sempre é barbearia ("CABELO & BARBA");
+# a palavra inteira é exigida para não pegar sobrenomes como BARBOSA.
+#
+# Critérios (definidos em 2026-11-12): somente ativos, somente CNAE principal, MEIs em abas separadas.
+
+somente_principal = true
+separar_mei = true
+
+[[segmento]]
+nome = "Barbearias"
+cnaes = ["9602-5/01"]  # Cabeleireiros, manicure e pedicure
+filtro_nome = '\b(BARBEARIAS?|BARBEIROS?|BARBERS?|BARBERSHOPS?|BARBESHOP|BARBA)\b'
